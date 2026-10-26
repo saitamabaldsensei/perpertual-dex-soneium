@@ -1,0 +1,104 @@
+
+ // SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract PerpDEX {
+    enum Direction {
+        LONG,
+        SHORT
+    }
+
+    struct Position {
+        address trader;
+        Direction direction;
+        uint256 collateral;
+        uint256 entryPrice;
+        uint256 leverage;
+        bool isOpen;
+    }
+
+    uint256 public nextPositionId = 1;
+    mapping(uint256 => Position) public positions;
+
+    event PositionOpened(
+        uint256 indexed id,
+        address indexed trader,
+        Direction direction,
+        uint256 collateral,
+        uint256 entryPrice,
+        uint256 leverage
+    );
+
+    event PositionClosed(
+        uint256 indexed id,
+        int256 pnl
+    );
+
+    // Open a simulated perpetual position.
+    function openPosition(
+        Direction direction,
+        uint256 collateral,
+        uint256 entryPrice,
+        uint256 leverage
+    ) external returns (uint256 id) {
+        require(collateral > 0, "Collateral must be positive");
+        require(entryPrice > 0, "Invalid entry price");
+        require(leverage >= 1 && leverage <= 10, "Max leverage is 10x");
+
+        id = nextPositionId++;
+
+        positions[id] = Position({
+            trader: msg.sender,
+            direction: direction,
+            collateral: collateral,
+            entryPrice: entryPrice,
+            leverage: leverage,
+            isOpen: true
+        });
+
+        emit PositionOpened(
+            id,
+            msg.sender,
+            direction,
+            collateral,
+            entryPrice,
+            leverage
+        );
+    }
+
+    // Simulate closing at a new price.
+    function closePosition(
+        uint256 id,
+        uint256 exitPrice
+    ) external returns (int256 pnl) {
+        Position storage p = positions[id];
+
+        require(p.trader == msg.sender, "Not your position");
+        require(p.isOpen, "Position already closed");
+        require(exitPrice > 0, "Invalid exit price");
+
+        uint256 notional = p.collateral * p.leverage;
+        uint256 priceDiff;
+
+        if (p.direction == Direction.LONG) {
+            if (exitPrice >= p.entryPrice) {
+                priceDiff = exitPrice - p.entryPrice;
+                pnl = int256((notional * priceDiff) / p.entryPrice);
+            } else {
+                priceDiff = p.entryPrice - exitPrice;
+                pnl = -int256((notional * priceDiff) / p.entryPrice);
+            }
+        } else {
+            if (exitPrice <= p.entryPrice) {
+                priceDiff = p.entryPrice - exitPrice;
+                pnl = int256((notional * priceDiff) / p.entryPrice);
+            } else {
+                priceDiff = exitPrice - p.entryPrice;
+                pnl = -int256((notional * priceDiff) / p.entryPrice);
+            }
+        }
+
+        p.isOpen = false;
+        emit PositionClosed(id, pnl);
+    }
+}
